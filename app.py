@@ -1,13 +1,12 @@
 import streamlit as st
 import os
 from read_resume import extract_text
-from text_cleaner import clean_text
-from matcher import calculate_score
 from skill_gap import get_skill_gap
 
 from io import BytesIO
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
+
 
 # ---------------- PAGE CONFIG ----------------
 st.set_page_config(
@@ -94,11 +93,10 @@ elif page == "📄 Single Resume":
             with open("temp.pdf", "wb") as f:
                 f.write(uploaded_file.read())
 
-            resume_text = clean_text(extract_text("temp.pdf"))
-            job_clean = clean_text(job_desc)
+            resume_text = extract_text("temp.pdf")
 
-            score = calculate_score(resume_text, job_clean)
-            matched, missing = get_skill_gap(resume_text, job_clean)
+            # ⭐ NEW ATS ENGINE
+            score, matched, missing = get_skill_gap(resume_text, job_desc)
 
             st.subheader("ATS Match Score")
             st.progress(score/100)
@@ -136,8 +134,6 @@ elif page == "📂 Bulk Resume Screening":
         if not uploaded_files or job_desc.strip()=="":
             st.warning("Upload resumes and paste job description")
         else:
-            job_clean = clean_text(job_desc)
-
             results = []
             progress = st.progress(0)
 
@@ -147,9 +143,10 @@ elif page == "📂 Bulk Resume Screening":
                 with open(filename, "wb") as f:
                     f.write(file.read())
 
-                resume_text = clean_text(extract_text(filename))
-                score = calculate_score(resume_text, job_clean)
-                matched, missing = get_skill_gap(resume_text, job_clean)
+                resume_text = extract_text(filename)
+
+                # ⭐ SINGLE ATS ENGINE
+                score, matched, missing = get_skill_gap(resume_text, job_desc)
 
                 results.append((file.name, score, matched, missing))
 
