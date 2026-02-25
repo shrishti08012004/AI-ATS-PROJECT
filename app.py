@@ -1,165 +1,135 @@
 import streamlit as st
-import os
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+
 from read_resume import extract_text
 from skill_gap import get_skill_gap
+from svm_model import train_svm, predict_match
 
-from io import BytesIO
-from reportlab.lib.pagesizes import letter
-from reportlab.pdfgen import canvas
+from streamlit_option_menu import option_menu
 
 
-# ---------------- PAGE CONFIG ----------------
-st.set_page_config(
-    page_title="AI ATS Resume Screener",
-    page_icon="📄",
-    layout="wide"
-)
+# ---------------- LOAD ML ----------------
+model, vectorizer = train_svm()
 
-# ---------------- HERO SECTION ----------------
-def hero_section():
-    st.markdown("""
-    <div style='
-        background: linear-gradient(135deg,#6C63FF,#4B0082);
-        padding:50px;
-        border-radius:18px;
-        text-align:center;
-        color:white;
-        margin-bottom:25px;
-    '>
-        <h1>🚀 AI ATS Resume Screening System</h1>
-        <p style='font-size:20px;'>Upload resumes • Match with job • Find best candidates instantly</p>
-    </div>
-    """, unsafe_allow_html=True)
+# ---------------- PAGE ----------------
+st.set_page_config(page_title="Smart ATS Dashboard", layout="wide")
 
-# ---------------- PDF REPORT ----------------
-def generate_pdf(score, matched, missing):
-    buffer = BytesIO()
-    c = canvas.Canvas(buffer, pagesize=letter)
-    width, height = letter
+st.markdown("""
+<div style='background:linear-gradient(135deg,#667eea,#764ba2);
+padding:35px;border-radius:18px;color:white;text-align:center'>
+<h1>🤖 Smart ATS Resume Screening Dashboard</h1>
+<p>ATS + Machine Learning + Analytics</p>
+</div>
+""", unsafe_allow_html=True)
 
-    c.setFont("Helvetica-Bold", 16)
-    c.drawString(50, height - 50, "ATS Resume Report")
-
-    c.setFont("Helvetica", 12)
-    c.drawString(50, height - 100, f"ATS Score: {score}%")
-    c.drawString(50, height - 130, "Matched Skills: " + (", ".join(matched) if matched else "None"))
-    c.drawString(50, height - 160, "Missing Skills: " + (", ".join(missing) if missing else "None"))
-
-    c.showPage()
-    c.save()
-    buffer.seek(0)
-    return buffer
-
-# ---------------- SIDEBAR ----------------
-st.sidebar.title("📊 Navigation")
-page = st.sidebar.radio(
-    "Go to",
-    ["🏠 Home", "📄 Single Resume", "📂 Bulk Resume Screening"]
-)
+# ---------------- MENU ----------------
+with st.sidebar:
+    selected = option_menu(
+        "Navigation",
+        ["Single Resume", "Bulk Screening"],
+        icons=["person", "people"],
+        menu_icon="cast"
+    )
 
 # =========================================================
-# 🏠 HOME PAGE
+# 👤 SINGLE RESUME MODE
 # =========================================================
-if page == "🏠 Home":
-    hero_section()
-    st.markdown("### 💡 What this system does")
-    st.info("""
-    ✔ Checks ATS compatibility  
-    ✔ Finds missing skills  
-    ✔ Filters best candidates  
-    ✔ Works on 1000+ resumes automatically
-    """)
+if selected == "Single Resume":
 
-# =========================================================
-# 📄 SINGLE RESUME ANALYZER
-# =========================================================
-elif page == "📄 Single Resume":
-
-    st.header("📄 Single Resume ATS Analyzer")
+    st.header("👤 Resume Analysis")
 
     col1, col2 = st.columns([1,2])
 
     with col1:
-        uploaded_file = st.file_uploader("Upload Resume (PDF)", type=["pdf"])
+        file = st.file_uploader("Upload Resume", type=["pdf"])
 
     with col2:
-        job_desc = st.text_area("Paste Job Description")
+        jd = st.text_area("Paste Job Description")
 
-    if st.button("Analyze Resume"):
+    if st.button("Analyze"):
 
-        if uploaded_file is None or job_desc.strip() == "":
-            st.warning("Please upload resume and paste job description")
-        else:
+        if file and jd:
             with open("temp.pdf", "wb") as f:
-                f.write(uploaded_file.read())
+                f.write(file.read())
 
             resume_text = extract_text("temp.pdf")
 
-            # ⭐ NEW ATS ENGINE
-            score, matched, missing = get_skill_gap(resume_text, job_desc)
+            score, matched, missing = get_skill_gap(resume_text, jd)
+            prediction, confidence = predict_match(model, vectorizer, resume_text, jd)
 
-            st.subheader("ATS Match Score")
-            st.progress(score/100)
-            st.metric("Score", f"{score}%")
+            st.metric("ATS Score", f"{score}%")
 
-            c1, c2 = st.columns(2)
-            with c1:
-                st.success("Matched Skills")
-                st.write(", ".join(matched) if matched else "None")
-
-            with c2:
-                st.error("Missing Skills")
-                st.write(", ".join(missing) if missing else "None")
-
-            pdf_buffer = generate_pdf(score, matched, missing)
-            st.download_button("Download Report", pdf_buffer, "ATS_Report.pdf")
+            if prediction == 1:
+                st.success(f"ML Verdict: Good Match ({confidence}% confidence)")
+            else:
+                st.error(f"ML Verdict: Low Match ({confidence}% confidence)")
 
 # =========================================================
-# 📂 BULK RESUME ANALYZER
+# 👥 BULK SCREENING MODE
 # =========================================================
-elif page == "📂 Bulk Resume Screening":
+elif selected == "Bulk Screening":
 
-    st.header("📂 Bulk Resume Screening (HR Mode)")
+    st.header("👥 Bulk Resume Analyzer")
 
-    uploaded_files = st.file_uploader(
+    files = st.file_uploader(
         "Upload Multiple Resumes",
         type=["pdf"],
         accept_multiple_files=True
     )
 
-    job_desc = st.text_area("Paste Job Description For All Candidates")
+    jd_bulk = st.text_area("Paste Job Description")
 
-    if st.button("Analyze All Resumes"):
+    if st.button("Analyze All"):
 
-        if not uploaded_files or job_desc.strip()=="":
-            st.warning("Upload resumes and paste job description")
-        else:
-            results = []
+        if files and jd_bulk:
+
+            data = []
             progress = st.progress(0)
 
-            for i, file in enumerate(uploaded_files):
+            for i, f in enumerate(files):
 
-                filename = f"temp_{i}.pdf"
-                with open(filename, "wb") as f:
-                    f.write(file.read())
+                name = f.name
+                temp_file = f"temp_{i}.pdf"
 
-                resume_text = extract_text(filename)
+                with open(temp_file, "wb") as file:
+                    file.write(f.read())
 
-                # ⭐ SINGLE ATS ENGINE
-                score, matched, missing = get_skill_gap(resume_text, job_desc)
+                resume_text = extract_text(temp_file)
 
-                results.append((file.name, score, matched, missing))
+                score, matched, missing = get_skill_gap(resume_text, jd_bulk)
+                prediction, confidence = predict_match(model, vectorizer, resume_text, jd_bulk)
 
-                progress.progress((i+1)/len(uploaded_files))
+                data.append({
+                    "Resume": name,
+                    "Score": score,
+                    "Prediction": "Good Match" if prediction==1 else "Low Match",
+                    "Confidence": confidence
+                })
 
-            st.success("Analysis Completed!")
+                progress.progress((i+1)/len(files))
 
-            st.subheader("🏆 Top Candidates")
+            df = pd.DataFrame(data)
 
-            results.sort(key=lambda x: x[1], reverse=True)
+            st.dataframe(df)
 
-            for name, score, matched, missing in results:
-                if score >= 60:
-                    with st.expander(f"{name} — {score}%"):
-                        st.write("Matched:", ", ".join(matched))
-                        st.write("Missing:", ", ".join(missing))
+            # ⭐ Candidate Ranking Chart
+            st.subheader("📊 Candidate Ranking")
+
+            fig = plt.figure()
+            plt.bar(df["Resume"], df["Score"])
+            plt.xticks(rotation=90)
+            plt.ylabel("ATS Score")
+            st.pyplot(fig)
+
+            # ⭐ CSV Export
+            csv = df.to_csv(index=False).encode()
+            st.download_button("📥 Download Shortlist CSV", csv, "shortlist.csv")
+
+            # ⭐ Heatmap
+            st.subheader("🔥 Resume Score Heatmap")
+
+            heatmap_fig = plt.figure()
+            sns.heatmap(df[["Score", "Confidence"]], annot=True)
+            st.pyplot(heatmap_fig)
