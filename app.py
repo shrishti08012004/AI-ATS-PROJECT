@@ -7,9 +7,6 @@ from read_resume import extract_text
 from skill_gap import get_skill_gap
 from svm_model import train_svm, predict_match
 
-from streamlit_option_menu import option_menu
-
-
 # ---------------- LOAD ML ----------------
 model, vectorizer = train_svm()
 
@@ -25,13 +22,9 @@ padding:35px;border-radius:18px;color:white;text-align:center'>
 """, unsafe_allow_html=True)
 
 # ---------------- MENU ----------------
-with st.sidebar:
-    selected = option_menu(
-        "Navigation",
-        ["Single Resume", "Bulk Screening"],
-        icons=["person", "people"],
-        menu_icon="cast"
-    )
+# Using Streamlit builtin sidebar selectbox instead of external package
+st.sidebar.title("Navigation")
+selected = st.sidebar.selectbox("Mode", ["Single Resume", "Bulk Screening"]) 
 
 # =========================================================
 # 👤 SINGLE RESUME MODE
